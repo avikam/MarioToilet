@@ -144,10 +144,11 @@ public class FullscreenActivity extends AppCompatActivity implements SurfaceHold
                     currentTime = TrueTime.now().getTime();
                     timeTillNextRun = nextRun - currentTime;
                     long sleepTime = timeTillNextRun / 2;
+                    if (sleepTime < 0) sleepTime=0;
                     Log.v("videoManager", String.format("currentTime = %d, sleepTime = %d",
                             currentTime,
                             sleepTime));
-                    SystemClock.sleep(timeTillNextRun / 2);
+                    SystemClock.sleep(sleepTime);
                 }
                 currentTime = TrueTime.now().getTime();
                 Log.v("videoManager", String.format("Video Start Time = %d", currentTime));
