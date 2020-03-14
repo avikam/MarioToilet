@@ -134,9 +134,6 @@ public class FullscreenActivity extends AppCompatActivity implements SurfaceHold
       }
       Log.v("videoManager",
           String.format("ready for business: videoName = %s", videoName));
-      int videoDuration = mediaPlayer.getDuration();
-      Log.v("videoManager", String.format("Video Duration = %d", videoDuration));
-      int syncDuration = videoDuration + 1000 * 5;
 
       while (true) {
         try {
@@ -144,6 +141,9 @@ public class FullscreenActivity extends AppCompatActivity implements SurfaceHold
         } catch (IOException e) {
           e.printStackTrace();
         }
+        int videoDuration = mediaPlayer.getDuration();
+        Log.v("videoManager", String.format("Video Duration = %d", videoDuration));
+        int syncDuration = videoDuration + 1000 * 5;
         Date myDate = TrueTime.now();
         long currentTime = myDate.getTime();
         Log.v("videoManager", String.format("Loop Start Time = %d", currentTime));
