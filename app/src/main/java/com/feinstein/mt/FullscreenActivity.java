@@ -6,10 +6,13 @@ import androidx.appcompat.app.ActionBar;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
+import android.app.DownloadManager;
+import android.content.IntentFilter;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.SharedPreferences;
 import android.media.MediaPlayer;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.SystemClock;
@@ -21,8 +24,13 @@ import android.view.SurfaceView;
 import android.view.View;
 import android.widget.EditText;
 
+import com.android.volley.Request;
+import com.android.volley.RequestQueue;
+import com.android.volley.toolbox.StringRequest;
+import com.android.volley.toolbox.Volley;
 import com.instacart.library.truetime.TrueTime;
 
+import java.io.File;
 import java.io.IOException;
 import java.util.Date;
 
@@ -32,194 +40,198 @@ import java.util.Date;
  * status bar and navigation/system bar) with user interaction.
  */
 public class FullscreenActivity extends AppCompatActivity implements SurfaceHolder.Callback {
-    public static final String VIDEO_NAME = "video_name";
-    private MediaPlayer mediaPlayer;
+  public static final String VIDEO_NAME = "video_name";
+  private MediaPlayer mediaPlayer;
+  private PlaylistConfig plConfig;
+  // Identifier specifying which video to play
+  private Integer videoPlayerId;
 
-    /**
-     * Whether or not the system UI should be auto-hidden after
-     * {@link #AUTO_HIDE_DELAY_MILLIS} milliseconds.
-     */
-    private static final boolean AUTO_HIDE = true;
-    private boolean timeSynced = false;
-    private boolean surfaceCreated = false;
+  /**
+   * Whether or not the system UI should be auto-hidden after
+   * {@link #AUTO_HIDE_DELAY_MILLIS} milliseconds.
+   */
+  private static final boolean AUTO_HIDE = true;
+  private boolean timeSynced = false;
+  private boolean surfaceCreated = false;
 
-    /**
-     * If {@link #AUTO_HIDE} is set, the number of milliseconds to wait after
-     * user interaction before hiding the system UI.
-     */
-    private static final int AUTO_HIDE_DELAY_MILLIS = 3000;
+  /**
+   * If {@link #AUTO_HIDE} is set, the number of milliseconds to wait after
+   * user interaction before hiding the system UI.
+   */
+  private static final int AUTO_HIDE_DELAY_MILLIS = 3000;
 
-    /**
-     * Some older devices needs a small delay between UI widget updates
-     * and a change of the status and navigation bar.
-     */
-    private static final int UI_ANIMATION_DELAY = 300;
-    private final Handler mHideHandler = new Handler();
-    private SurfaceView surfaceView;
-    private final Runnable mHidePart2Runnable = new Runnable() {
-        @SuppressLint("InlinedApi")
-        @Override
-        public void run() {
-            // Delayed removal of status and navigation bar
-
-            // Note that some of these constants are new as of API 16 (Jelly Bean)
-            // and API 19 (KitKat). It is safe to use them, as they are inlined
-            // at compile-time and do nothing on earlier devices.
-            surfaceView.setSystemUiVisibility(View.SYSTEM_UI_FLAG_LOW_PROFILE
-                    | View.SYSTEM_UI_FLAG_FULLSCREEN
-                    | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                    | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                    | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                    | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION);
-        }
-    };
-    private View mControlsView;
-    private final Runnable mShowPart2Runnable = new Runnable() {
-        @Override
-        public void run() {
-            // Delayed display of UI elements
-            ActionBar actionBar = getSupportActionBar();
-            if (actionBar != null) {
-                actionBar.show();
-            }
-            mControlsView.setVisibility(View.VISIBLE);
-        }
-    };
-    private boolean mVisible;
-    private final Runnable mHideRunnable = new Runnable() {
-        @Override
-        public void run() {
-            hide();
-        }
-    };
-
-    private final Runnable syncTime = new Runnable() {
-        @Override
-        public void run() {
-            try {
-                // TODO: In Loop
-                TrueTime.build().initialize();
-                timeSynced = true;
-
-                Date noReallyThisIsTheTrueDateAndTime = TrueTime.now();
-                noReallyThisIsTheTrueDateAndTime.getTime();
-                Log.v("TIME_DEBUG", noReallyThisIsTheTrueDateAndTime.toString());
-
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-        }
-    };
-
-    private final Runnable videoManager = new Runnable() {
-        @SuppressWarnings("InfiniteLoopStatement")
-        @Override
-        public void run() {
-            while (!(timeSynced && surfaceCreated && (videoName != null))) {
-                Log.v("videoManager", "waiting for init");
-                SystemClock.sleep(1000);
-            }
-            Log.v("videoManager",
-                    String.format("ready for business: videoName = %s", videoName));
-            int videoDuration = mediaPlayer.getDuration();
-            Log.v("videoManager", String.format("Video Duration = %d", videoDuration));
-            int syncDuration = videoDuration + 1000 * 5;
-
-            while (true) {
-                try {
-                    TrueTime.build().initialize();
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-                Date myDate = TrueTime.now();
-                long currentTime = myDate.getTime();
-                Log.v("videoManager", String.format("Loop Start Time = %d", currentTime));
-                long currentOffset = currentTime % syncDuration;
-                Log.v("videoManager", String.format("currentOffset = %d", currentOffset));
-                long nextRun = currentTime + (syncDuration - currentOffset);
-                long timeTillNextRun = nextRun - currentTime;
-                Log.v("videoManager", String.format("Next Run = %d, sleep for %d", nextRun,
-                        timeTillNextRun));
-                while (currentTime < nextRun) {
-                    currentTime = TrueTime.now().getTime();
-                    timeTillNextRun = nextRun - currentTime;
-                    long sleepTime = timeTillNextRun / 2;
-                    if (sleepTime < 0) sleepTime=0;
-                    Log.v("videoManager", String.format("currentTime = %d, sleepTime = %d",
-                            currentTime,
-                            sleepTime));
-                    SystemClock.sleep(sleepTime);
-                }
-                currentTime = TrueTime.now().getTime();
-                Log.v("videoManager", String.format("Video Start Time = %d", currentTime));
-                mediaPlayer.start();
-            }
-        }
-    };
-
-    /**
-     * Touch listener to use for in-layout UI controls to delay hiding the
-     * system UI. This is to prevent the jarring behavior of controls going away
-     * while interacting with activity UI.
-     */
-    private final View.OnTouchListener mDelayHideTouchListener = new View.OnTouchListener() {
-        @Override
-        public boolean onTouch(View view, MotionEvent motionEvent) {
-            if (AUTO_HIDE) {
-                delayedHide(AUTO_HIDE_DELAY_MILLIS);
-            }
-            return false;
-        }
-    };
-    private String videoName = null;
-
+  /**
+   * Some older devices needs a small delay between UI widget updates
+   * and a change of the status and navigation bar.
+   */
+  private static final int UI_ANIMATION_DELAY = 300;
+  private final Handler mHideHandler = new Handler();
+  private SurfaceView surfaceView;
+  private final Runnable mHidePart2Runnable = new Runnable() {
+    @SuppressLint("InlinedApi")
     @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
+    public void run() {
+      // Delayed removal of status and navigation bar
+
+      // Note that some of these constants are new as of API 16 (Jelly Bean)
+      // and API 19 (KitKat). It is safe to use them, as they are inlined
+      // at compile-time and do nothing on earlier devices.
+      surfaceView.setSystemUiVisibility(View.SYSTEM_UI_FLAG_LOW_PROFILE
+          | View.SYSTEM_UI_FLAG_FULLSCREEN
+          | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+          | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+          | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+          | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION);
+    }
+  };
+  private View mControlsView;
+  private final Runnable mShowPart2Runnable = new Runnable() {
+    @Override
+    public void run() {
+      // Delayed display of UI elements
+      ActionBar actionBar = getSupportActionBar();
+      if (actionBar != null) {
+        actionBar.show();
+      }
+      mControlsView.setVisibility(View.VISIBLE);
+    }
+  };
+  private boolean mVisible;
+  private final Runnable mHideRunnable = new Runnable() {
+    @Override
+    public void run() {
+      hide();
+    }
+  };
+
+  private final Runnable syncTime = new Runnable() {
+    @Override
+    public void run() {
+      try {
+        // TODO: In Loop
+        TrueTime.build().initialize();
+        timeSynced = true;
+
+        Date noReallyThisIsTheTrueDateAndTime = TrueTime.now();
+        noReallyThisIsTheTrueDateAndTime.getTime();
+        Log.v("TIME_DEBUG", noReallyThisIsTheTrueDateAndTime.toString());
+
+      } catch (IOException e) {
+        e.printStackTrace();
+      }
+    }
+  };
+
+  private final Runnable videoManager = new Runnable() {
+    @SuppressWarnings("InfiniteLoopStatement")
+    @Override
+    public void run() {
+      while (!(timeSynced && surfaceCreated && (videoName != null))) {
+        Log.v("videoManager", String.format(
+            "waiting for init (%b %b %s)", timeSynced, surfaceCreated, videoName
+        ));
+        SystemClock.sleep(1000);
+      }
+      Log.v("videoManager",
+          String.format("ready for business: videoName = %s", videoName));
+      int videoDuration = mediaPlayer.getDuration();
+      Log.v("videoManager", String.format("Video Duration = %d", videoDuration));
+      int syncDuration = videoDuration + 1000 * 5;
+
+      while (true) {
+        try {
+          TrueTime.build().initialize();
+        } catch (IOException e) {
+          e.printStackTrace();
+        }
+        Date myDate = TrueTime.now();
+        long currentTime = myDate.getTime();
+        Log.v("videoManager", String.format("Loop Start Time = %d", currentTime));
+        long currentOffset = currentTime % syncDuration;
+        Log.v("videoManager", String.format("currentOffset = %d", currentOffset));
+        long nextRun = currentTime + (syncDuration - currentOffset);
+        long timeTillNextRun = nextRun - currentTime;
+        Log.v("videoManager", String.format("Next Run = %d, sleep for %d", nextRun,
+            timeTillNextRun));
+        while (currentTime < nextRun) {
+          currentTime = TrueTime.now().getTime();
+          timeTillNextRun = nextRun - currentTime;
+          long sleepTime = timeTillNextRun / 2;
+          if (sleepTime < 0) sleepTime = 0;
+          Log.v("videoManager", String.format("currentTime = %d, sleepTime = %d",
+              currentTime,
+              sleepTime));
+          SystemClock.sleep(sleepTime);
+        }
+        currentTime = TrueTime.now().getTime();
+        Log.v("videoManager", String.format("Video Start Time = %d", currentTime));
+        mediaPlayer.start();
+      }
+    }
+  };
+
+  /**
+   * Touch listener to use for in-layout UI controls to delay hiding the
+   * system UI. This is to prevent the jarring behavior of controls going away
+   * while interacting with activity UI.
+   */
+  private final View.OnTouchListener mDelayHideTouchListener = new View.OnTouchListener() {
+    @Override
+    public boolean onTouch(View view, MotionEvent motionEvent) {
+      if (AUTO_HIDE) {
+        delayedHide(AUTO_HIDE_DELAY_MILLIS);
+      }
+      return false;
+    }
+  };
+  private String videoName = null;
+
+  @Override
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
 
 
-        SharedPreferences sharedPref = getPreferences(Context.MODE_PRIVATE);
-        final SharedPreferences.Editor editor = sharedPref.edit();
-        if (!sharedPref.contains(VIDEO_NAME)) {
-            AlertDialog.Builder builder = new AlertDialog.Builder(this);
-            builder.setTitle("Enter video name");
+    SharedPreferences sharedPref = getPreferences(Context.MODE_PRIVATE);
+    final SharedPreferences.Editor editor = sharedPref.edit();
+    if (!sharedPref.contains(VIDEO_NAME)) {
+      AlertDialog.Builder builder = new AlertDialog.Builder(this);
+      builder.setTitle("Enter video name");
 
 // Set up the input
-            final EditText input = new EditText(this);
+      final EditText input = new EditText(this);
 // Specify the type of input expected; this, for example, sets the input as a password, and will mask the text
-            input.setInputType(InputType.TYPE_CLASS_TEXT);
-            builder.setView(input);
+      input.setInputType(InputType.TYPE_CLASS_TEXT);
+      builder.setView(input);
 
 // Set up the buttons
-            builder.setPositiveButton("OK", new DialogInterface.OnClickListener() {
-                @Override
-                public void onClick(DialogInterface dialog, int which) {
-                    videoName = input.getText().toString();
-                    editor.putString(VIDEO_NAME, videoName);
-                    editor.apply();
-                }
-            });
-            builder.setNegativeButton("Cancel", new DialogInterface.OnClickListener() {
-                @Override
-                public void onClick(DialogInterface dialog, int which) {
-                    dialog.cancel();
-                }
-            });
-
-            builder.show();
-        }else{
-            videoName = sharedPref.getString(VIDEO_NAME, null);
+      builder.setPositiveButton("OK", new DialogInterface.OnClickListener() {
+        @Override
+        public void onClick(DialogInterface dialog, int which) {
+          videoName = input.getText().toString();
+          editor.putString(VIDEO_NAME, videoName);
+          editor.apply();
         }
+      });
+      builder.setNegativeButton("Cancel", new DialogInterface.OnClickListener() {
+        @Override
+        public void onClick(DialogInterface dialog, int which) {
+          dialog.cancel();
+        }
+      });
+
+      builder.show();
+    } else {
+      videoName = sharedPref.getString(VIDEO_NAME, null);
+    }
 
 
+    setContentView(R.layout.activity_fullscreen);
 
-        setContentView(R.layout.activity_fullscreen);
-
-        mVisible = true;
-        mControlsView = findViewById(R.id.fullscreen_content_controls);
+    mVisible = true;
+    mControlsView = findViewById(R.id.fullscreen_content_controls);
 
 
-        // Set up the user interaction to manually show or hide the system UI.
+    // Set up the user interaction to manually show or hide the system UI.
 //    mContentView.setOnClickListener(new View.OnClickListener() {
 //      @Override
 //      public void onClick(View view) {
@@ -227,89 +239,127 @@ public class FullscreenActivity extends AppCompatActivity implements SurfaceHold
 //      }
 //    });
 
-        // Upon interacting with UI controls, delay any scheduled hide()
-        // operations to prevent the jarring behavior of controls going away
-        // while interacting with the UI.
-        findViewById(R.id.dummy_button).setOnTouchListener(mDelayHideTouchListener);
+    // Upon interacting with UI controls, delay any scheduled hide()
+    // operations to prevent the jarring behavior of controls going away
+    // while interacting with the UI.
+    findViewById(R.id.dummy_button).setOnTouchListener(mDelayHideTouchListener);
 
+    // Time Sync
+    new Thread(syncTime).start();
+    new Thread(videoManager).start();
 
-        mediaPlayer = MediaPlayer.create(this, R.raw.vidcap0);
-        mediaPlayer.setLooping(false);
-        surfaceView = findViewById(R.id.marioVideoSurface);
-        surfaceView.getHolder().addCallback(this);
+    // TODO: Get Video Player ID:
+    videoPlayerId = 0;
 
-        Thread thread = new Thread(syncTime);
-        thread.start();
-        Thread thread2 = new Thread(videoManager);
-        thread2.start();
-    }
+    RequestQueue httpRequestQueue = Volley.newRequestQueue(this);
+    StringRequest stringRequest = new StringRequest(Request.Method.GET,
+        "http://10.0.2.2:8000/playlist",
+        (response) -> {
+          Log.v("PLAYLIST", response);
 
-    @Override
-    protected void onPostCreate(Bundle savedInstanceState) {
-        super.onPostCreate(savedInstanceState);
+          plConfig = PlaylistConfig.fromString(response);
+          String videoUrl = plConfig.videos.get(videoPlayerId);
+          Log.v("PLAYLIST", String.format("My Video: %s. Starting Downloading it", videoUrl));
 
-        // Trigger the initial hide() shortly after the activity has been
-        // created, to briefly hint to the user that UI controls
-        // are available.
-        delayedHide(100);
-    }
-
-    private void toggle() {
-        if (mVisible) {
-            hide();
-        } else {
-            show();
+          downloadVideoFile(videoUrl);
+        },
+        (error) -> {
+          Log.e("PLAYLIST", error.toString());
         }
+    );
+
+    httpRequestQueue.add(stringRequest);
+
+    // Setup Media Player
+    mediaPlayer = MediaPlayer.create(this, R.raw.vidcap0);
+    mediaPlayer.setLooping(true);
+    surfaceView = findViewById(R.id.marioVideoSurface);
+    surfaceView.getHolder().addCallback(this);
+
+  }
+
+  private void downloadVideoFile(String url) {
+    File file = new File(getExternalFilesDir(null), "Dummy");
+    Log.v("DOWNLOAD", "Downloading to " + file.getPath());
+
+    DownloadManager.Request request = new DownloadManager.Request(
+        Uri.parse(url))
+        .setTitle("Mario Toilet")// Title of the Download Notification
+        .setDescription("Downloading Mario Toilet new video")
+        .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
+        .setDestinationUri(Uri.fromFile(file));
+
+    DownloadManager downloadManager = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+    downloadManager.enqueue(request);
+  }
+
+
+  @Override
+  protected void onPostCreate(Bundle savedInstanceState) {
+    super.onPostCreate(savedInstanceState);
+
+    // Trigger the initial hide() shortly after the activity has been
+    // created, to briefly hint to the user that UI controls
+    // are available.
+    delayedHide(100);
+  }
+
+  private void toggle() {
+    if (mVisible) {
+      hide();
+    } else {
+      show();
     }
+  }
 
-    private void hide() {
-        // Hide UI first
-        ActionBar actionBar = getSupportActionBar();
-        if (actionBar != null) {
-            actionBar.hide();
-        }
-        mControlsView.setVisibility(View.GONE);
-        mVisible = false;
-
-        // Schedule a runnable to remove the status and navigation bar after a delay
-        mHideHandler.removeCallbacks(mShowPart2Runnable);
-        mHideHandler.postDelayed(mHidePart2Runnable, UI_ANIMATION_DELAY);
+  private void hide() {
+    // Hide UI first
+    ActionBar actionBar = getSupportActionBar();
+    if (actionBar != null) {
+      actionBar.hide();
     }
+    mControlsView.setVisibility(View.GONE);
+    mVisible = false;
 
-    @SuppressLint("InlinedApi")
-    private void show() {
-        // Show the system bar
-        surfaceView.setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
-        mVisible = true;
+    // Schedule a runnable to remove the status and navigation bar after a delay
+    mHideHandler.removeCallbacks(mShowPart2Runnable);
+    mHideHandler.postDelayed(mHidePart2Runnable, UI_ANIMATION_DELAY);
+  }
 
-        // Schedule a runnable to display UI elements after a delay
-        mHideHandler.removeCallbacks(mHidePart2Runnable);
-        mHideHandler.postDelayed(mShowPart2Runnable, UI_ANIMATION_DELAY);
-    }
+  @SuppressLint("InlinedApi")
+  private void show() {
+    // Show the system bar
+    surfaceView.setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+        | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+    mVisible = true;
 
-    /**
-     * Schedules a call to hide() in delay milliseconds, canceling any
-     * previously scheduled calls.
-     */
-    private void delayedHide(int delayMillis) {
-        mHideHandler.removeCallbacks(mHideRunnable);
-        mHideHandler.postDelayed(mHideRunnable, delayMillis);
-    }
+    // Schedule a runnable to display UI elements after a delay
+    mHideHandler.removeCallbacks(mHidePart2Runnable);
+    mHideHandler.postDelayed(mShowPart2Runnable, UI_ANIMATION_DELAY);
+  }
 
-    @Override
-    public void surfaceCreated(SurfaceHolder surfaceHolder) {
-        mediaPlayer.setDisplay(surfaceHolder);
-        surfaceCreated = true;
-    }
+  /**
+   * Schedules a call to hide() in delay milliseconds, canceling any
+   * previously scheduled calls.
+   */
+  private void delayedHide(int delayMillis) {
+    mHideHandler.removeCallbacks(mHideRunnable);
+    mHideHandler.postDelayed(mHideRunnable, delayMillis);
+  }
 
-    @Override
-    public void surfaceChanged(SurfaceHolder surfaceHolder, int i, int i1, int i2) {
+  @Override
+  public void surfaceCreated(SurfaceHolder surfaceHolder) {
+    mediaPlayer.setDisplay(surfaceHolder);
+    surfaceCreated = true;
+  }
 
-    }
+  @Override
+  public void surfaceChanged(SurfaceHolder surfaceHolder, int i, int i1, int i2) {
 
-    @Override
-    public void surfaceDestroyed(SurfaceHolder surfaceHolder) {
+  }
 
-    }
+  @Override
+  public void surfaceDestroyed(SurfaceHolder surfaceHolder) {
+
+  }
 }
