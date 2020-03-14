@@ -3,17 +3,23 @@ package com.feinstein.mt;
 import android.annotation.SuppressLint;
 
 import androidx.appcompat.app.ActionBar;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
+import android.content.Context;
+import android.content.DialogInterface;
+import android.content.SharedPreferences;
 import android.media.MediaPlayer;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.SystemClock;
+import android.text.InputType;
 import android.util.Log;
 import android.view.MotionEvent;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
+import android.widget.EditText;
 
 import com.instacart.library.truetime.TrueTime;
 
@@ -26,6 +32,7 @@ import java.util.Date;
  * status bar and navigation/system bar) with user interaction.
  */
 public class FullscreenActivity extends AppCompatActivity implements SurfaceHolder.Callback {
+    public static final String VIDEO_NAME = "video_name";
     private MediaPlayer mediaPlayer;
 
     /**
@@ -108,42 +115,43 @@ public class FullscreenActivity extends AppCompatActivity implements SurfaceHold
         @SuppressWarnings("InfiniteLoopStatement")
         @Override
         public void run() {
-            while (!(timeSynced && surfaceCreated)) {
+            while (!(timeSynced && surfaceCreated && (videoName != null))) {
                 Log.v("videoManager", "waiting for init");
                 SystemClock.sleep(1000);
             }
-            Log.v("videoManager", "ready for business");
+            Log.v("videoManager",
+                    String.format("ready for business: videoName = %s", videoName));
             int videoDuration = mediaPlayer.getDuration();
             Log.v("videoManager", String.format("Video Duration = %d", videoDuration));
-            int syncDuration = videoDuration + 1000*5;
+            int syncDuration = videoDuration + 1000 * 5;
 
             while (true) {
-              try {
-                TrueTime.build().initialize();
-              } catch (IOException e) {
-                e.printStackTrace();
-              }
-              Date myDate = TrueTime.now();
-              long currentTime = myDate.getTime();
-              Log.v("videoManager", String.format("Loop Start Time = %d", currentTime));
-              long currentOffset = currentTime % syncDuration;
-              Log.v("videoManager", String.format("currentOffset = %d", currentOffset));
-              long nextRun = currentTime + (syncDuration - currentOffset);
-              long timeTillNextRun = nextRun - currentTime;
-              Log.v("videoManager", String.format("Next Run = %d, sleep for %d", nextRun,
-                      timeTillNextRun));
-              while (currentTime < nextRun){
+                try {
+                    TrueTime.build().initialize();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+                Date myDate = TrueTime.now();
+                long currentTime = myDate.getTime();
+                Log.v("videoManager", String.format("Loop Start Time = %d", currentTime));
+                long currentOffset = currentTime % syncDuration;
+                Log.v("videoManager", String.format("currentOffset = %d", currentOffset));
+                long nextRun = currentTime + (syncDuration - currentOffset);
+                long timeTillNextRun = nextRun - currentTime;
+                Log.v("videoManager", String.format("Next Run = %d, sleep for %d", nextRun,
+                        timeTillNextRun));
+                while (currentTime < nextRun) {
+                    currentTime = TrueTime.now().getTime();
+                    timeTillNextRun = nextRun - currentTime;
+                    long sleepTime = timeTillNextRun / 2;
+                    Log.v("videoManager", String.format("currentTime = %d, sleepTime = %d",
+                            currentTime,
+                            sleepTime));
+                    SystemClock.sleep(timeTillNextRun / 2);
+                }
                 currentTime = TrueTime.now().getTime();
-                timeTillNextRun = nextRun - currentTime;
-                long sleepTime = timeTillNextRun / 2;
-                Log.v("videoManager", String.format("currentTime = %d, sleepTime = %d",
-                        currentTime,
-                        sleepTime));
-                SystemClock.sleep(timeTillNextRun / 2);
-              }
-              currentTime = TrueTime.now().getTime();
-              Log.v("videoManager", String.format("Video Start Time = %d", currentTime));
-              mediaPlayer.start();
+                Log.v("videoManager", String.format("Video Start Time = %d", currentTime));
+                mediaPlayer.start();
             }
         }
     };
@@ -162,10 +170,47 @@ public class FullscreenActivity extends AppCompatActivity implements SurfaceHold
             return false;
         }
     };
+    private String videoName = null;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+
+        SharedPreferences sharedPref = getPreferences(Context.MODE_PRIVATE);
+        final SharedPreferences.Editor editor = sharedPref.edit();
+        if (!sharedPref.contains(VIDEO_NAME)) {
+            AlertDialog.Builder builder = new AlertDialog.Builder(this);
+            builder.setTitle("Enter video name");
+
+// Set up the input
+            final EditText input = new EditText(this);
+// Specify the type of input expected; this, for example, sets the input as a password, and will mask the text
+            input.setInputType(InputType.TYPE_CLASS_TEXT);
+            builder.setView(input);
+
+// Set up the buttons
+            builder.setPositiveButton("OK", new DialogInterface.OnClickListener() {
+                @Override
+                public void onClick(DialogInterface dialog, int which) {
+                    videoName = input.getText().toString();
+                    editor.putString(VIDEO_NAME, videoName);
+                    editor.apply();
+                }
+            });
+            builder.setNegativeButton("Cancel", new DialogInterface.OnClickListener() {
+                @Override
+                public void onClick(DialogInterface dialog, int which) {
+                    dialog.cancel();
+                }
+            });
+
+            builder.show();
+        }else{
+            videoName = sharedPref.getString(VIDEO_NAME, null);
+        }
+
+
 
         setContentView(R.layout.activity_fullscreen);
 
