@@ -142,7 +142,7 @@ public class FullscreenActivity extends AppCompatActivity implements SurfaceHold
       int videoDuration = mediaPlayer.getDuration();
       Log.v("videoManager", String.format("Video Duration = %d", videoDuration));
       int syncDuration = videoDuration + 1000 * 5;
-      String.format("ready for business: videoName = %s", playerName));
+      Log.v("videoManager", String.format("ready for business: videoName = %s", playerName));
 
       while (true) {
         try {
