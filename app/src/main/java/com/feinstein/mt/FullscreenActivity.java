@@ -7,9 +7,10 @@ import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
 import android.app.DownloadManager;
-import android.content.IntentFilter;
+import android.content.BroadcastReceiver;
 import android.content.Context;
-import android.content.DialogInterface;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.media.MediaPlayer;
 import android.net.Uri;
@@ -40,11 +41,15 @@ import java.util.Date;
  * status bar and navigation/system bar) with user interaction.
  */
 public class FullscreenActivity extends AppCompatActivity implements SurfaceHolder.Callback {
-  public static final String VIDEO_NAME = "video_name";
   private MediaPlayer mediaPlayer;
   private PlaylistConfig plConfig;
   // Identifier specifying which video to play
   private Integer videoPlayerId;
+  private Integer playerName;
+
+
+  static final String VideoFileName = "MarioToiletFile.3gp";
+  static final String NewVideoFileName = "MarioToiletFile-New.3gp";
 
   /**
    * Whether or not the system UI should be auto-hidden after
@@ -126,14 +131,14 @@ public class FullscreenActivity extends AppCompatActivity implements SurfaceHold
     @SuppressWarnings("InfiniteLoopStatement")
     @Override
     public void run() {
-      while (!(timeSynced && surfaceCreated && (videoName != null))) {
+      while (!(timeSynced && surfaceCreated && (playerName != null))) {
         Log.v("videoManager", String.format(
-            "waiting for init (%b %b %s)", timeSynced, surfaceCreated, videoName
+            "waiting for init (%b %b %s)", timeSynced, surfaceCreated, playerName
         ));
         SystemClock.sleep(1000);
       }
       Log.v("videoManager",
-          String.format("ready for business: videoName = %s", videoName));
+          String.format("ready for business: playerName = %s", playerName));
       int videoDuration = mediaPlayer.getDuration();
       Log.v("videoManager", String.format("Video Duration = %d", videoDuration));
       int syncDuration = videoDuration + 1000 * 5;
@@ -170,7 +175,10 @@ public class FullscreenActivity extends AppCompatActivity implements SurfaceHold
     }
   };
 
-  /**
+  private long downloadID;
+
+
+    /**
    * Touch listener to use for in-layout UI controls to delay hiding the
    * system UI. This is to prevent the jarring behavior of controls going away
    * while interacting with activity UI.
@@ -184,60 +192,24 @@ public class FullscreenActivity extends AppCompatActivity implements SurfaceHold
       return false;
     }
   };
-  private String videoName = null;
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
 
-
-    SharedPreferences sharedPref = getPreferences(Context.MODE_PRIVATE);
-    final SharedPreferences.Editor editor = sharedPref.edit();
-    if (!sharedPref.contains(VIDEO_NAME)) {
-      AlertDialog.Builder builder = new AlertDialog.Builder(this);
-      builder.setTitle("Enter video name");
-
-// Set up the input
-      final EditText input = new EditText(this);
-// Specify the type of input expected; this, for example, sets the input as a password, and will mask the text
-      input.setInputType(InputType.TYPE_CLASS_TEXT);
-      builder.setView(input);
-
-// Set up the buttons
-      builder.setPositiveButton("OK", new DialogInterface.OnClickListener() {
-        @Override
-        public void onClick(DialogInterface dialog, int which) {
-          videoName = input.getText().toString();
-          editor.putString(VIDEO_NAME, videoName);
-          editor.apply();
-        }
-      });
-      builder.setNegativeButton("Cancel", new DialogInterface.OnClickListener() {
-        @Override
-        public void onClick(DialogInterface dialog, int which) {
-          dialog.cancel();
-        }
-      });
-
-      builder.show();
-    } else {
-      videoName = sharedPref.getString(VIDEO_NAME, null);
-    }
-
-
+    SetPlayerName();
     setContentView(R.layout.activity_fullscreen);
+
+    // Setup Media Player
+    mediaPlayer = new MediaPlayer();
+    mediaPlayer.setLooping(true);
+    surfaceView = findViewById(R.id.marioVideoSurface);
+    surfaceView.getHolder().addCallback(this);
 
     mVisible = true;
     mControlsView = findViewById(R.id.fullscreen_content_controls);
 
-
-    // Set up the user interaction to manually show or hide the system UI.
-//    mContentView.setOnClickListener(new View.OnClickListener() {
-//      @Override
-//      public void onClick(View view) {
-//        toggle();
-//      }
-//    });
+    registerReceiver(onDownloadComplete, new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE));
 
     // Upon interacting with UI controls, delay any scheduled hide()
     // operations to prevent the jarring behavior of controls going away
@@ -261,7 +233,14 @@ public class FullscreenActivity extends AppCompatActivity implements SurfaceHold
           String videoUrl = plConfig.videos.get(videoPlayerId);
           Log.v("PLAYLIST", String.format("My Video: %s. Starting Downloading it", videoUrl));
 
-          downloadVideoFile(videoUrl);
+          SharedPreferences sharedPreferences = getPreferences(Context.MODE_PRIVATE);
+          String currentFileName = Prefrences.GetVideoFilename(sharedPreferences);
+
+          if (currentFileName == null || currentFileName.equals(videoUrl)) {
+            Prefrences.SetVideoFilename(sharedPreferences, videoUrl);
+            downloadVideoFile(videoUrl);
+          }
+
         },
         (error) -> {
           Log.e("PLAYLIST", error.toString());
@@ -269,17 +248,65 @@ public class FullscreenActivity extends AppCompatActivity implements SurfaceHold
     );
 
     httpRequestQueue.add(stringRequest);
-
-    // Setup Media Player
-    mediaPlayer = MediaPlayer.create(this, R.raw.vidcap0);
-    mediaPlayer.setLooping(true);
-    surfaceView = findViewById(R.id.marioVideoSurface);
-    surfaceView.getHolder().addCallback(this);
-
   }
 
+  private void SetPlayerName() {
+    SharedPreferences sharedPref = getPreferences(Context.MODE_PRIVATE);
+    playerName = Prefrences.GetPlayerName(sharedPref);
+    if (playerName == null) {
+      AlertDialog.Builder builder = new AlertDialog.Builder(this);
+      builder.setTitle("Enter video name");
+
+      // Set up the input
+      final EditText input = new EditText(this);
+
+      // Specify the type of input expected; this, for example, sets the input as a password, and will mask the text
+      input.setInputType(InputType.TYPE_CLASS_TEXT);
+      builder.setView(input);
+
+      // Set up the buttons
+      builder.setPositiveButton(
+          "OK",
+          (dialog, which) -> playerName = Prefrences.SetPlayerName(
+              sharedPref, input.getText().toString())
+      );
+
+      builder.setNegativeButton("Cancel", (dialog, which) -> dialog.cancel());
+      builder.show();
+    }
+  }
+
+
+  // Video file download management
+  private BroadcastReceiver onDownloadComplete = new BroadcastReceiver() {
+    @Override
+    public void onReceive(Context context, Intent intent) {
+      long id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1);
+      if (downloadID != id) {
+        Log.w("DOWNLOAD", "Unknown file downloaded");
+        return;
+      }
+
+      try {
+        // Move new file to our dest file
+        File newFile = getVideoFile(NewVideoFileName);
+        newFile.renameTo(getVideoFile(VideoFileName));
+
+
+        // Change data source to the newly downloaded file
+        mediaPlayer.reset();
+        mediaPlayer.setDataSource(getVideoFile(VideoFileName).getPath());
+        mediaPlayer.prepare();
+
+      } catch (IOException e) {
+        Log.e("DOWNLOAD", "Error while loading downloaded file");
+        e.printStackTrace();
+      }
+    }
+  };
+
   private void downloadVideoFile(String url) {
-    File file = new File(getExternalFilesDir(null), "Dummy");
+    File file = getVideoFile(NewVideoFileName);
     Log.v("DOWNLOAD", "Downloading to " + file.getPath());
 
     DownloadManager.Request request = new DownloadManager.Request(
@@ -290,8 +317,10 @@ public class FullscreenActivity extends AppCompatActivity implements SurfaceHold
         .setDestinationUri(Uri.fromFile(file));
 
     DownloadManager downloadManager = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
-    downloadManager.enqueue(request);
+    downloadID = downloadManager.enqueue(request);
   }
+
+  // End video file download management
 
 
   @Override
@@ -302,14 +331,6 @@ public class FullscreenActivity extends AppCompatActivity implements SurfaceHold
     // created, to briefly hint to the user that UI controls
     // are available.
     delayedHide(100);
-  }
-
-  private void toggle() {
-    if (mVisible) {
-      hide();
-    } else {
-      show();
-    }
   }
 
   private void hide() {
@@ -324,18 +345,6 @@ public class FullscreenActivity extends AppCompatActivity implements SurfaceHold
     // Schedule a runnable to remove the status and navigation bar after a delay
     mHideHandler.removeCallbacks(mShowPart2Runnable);
     mHideHandler.postDelayed(mHidePart2Runnable, UI_ANIMATION_DELAY);
-  }
-
-  @SuppressLint("InlinedApi")
-  private void show() {
-    // Show the system bar
-    surfaceView.setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-        | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
-    mVisible = true;
-
-    // Schedule a runnable to display UI elements after a delay
-    mHideHandler.removeCallbacks(mHidePart2Runnable);
-    mHideHandler.postDelayed(mShowPart2Runnable, UI_ANIMATION_DELAY);
   }
 
   /**
@@ -361,5 +370,9 @@ public class FullscreenActivity extends AppCompatActivity implements SurfaceHold
   @Override
   public void surfaceDestroyed(SurfaceHolder surfaceHolder) {
 
+  }
+
+  private File getVideoFile(String filename) {
+    return new File(getExternalFilesDir(null), filename);
   }
 }
