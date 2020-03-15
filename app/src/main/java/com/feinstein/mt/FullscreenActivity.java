@@ -136,10 +136,10 @@ public class FullscreenActivity extends AppCompatActivity implements SurfaceHold
                   Log.v("PLAYLIST", "Downloading new file");
                   Prefrences.SetVideoFilename(sharedPreferences, videoUrl);
                   downloadVideoFile(videoUrl);
-                }
-                else {
+                } else {
                   try {
-                    PlayVideoFile();
+                    if (!videoAvailable)
+                      PlayVideoFile();
                   } catch (IOException e) {
                     e.printStackTrace();
                   }
@@ -206,7 +206,9 @@ public class FullscreenActivity extends AppCompatActivity implements SurfaceHold
         }
         currentTime = TrueTime.now().getTime();
         Log.v("videoManager", String.format("Video Start Time = %d", currentTime));
-        mediaPlayer.start();
+        runOnUiThread(
+            () -> mediaPlayer.start()
+        );
       }
     }
   };
