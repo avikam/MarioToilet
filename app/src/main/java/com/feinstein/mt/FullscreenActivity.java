@@ -142,6 +142,7 @@ public class FullscreenActivity extends AppCompatActivity implements SurfaceHold
       int videoDuration = mediaPlayer.getDuration();
       Log.v("videoManager", String.format("Video Duration = %d", videoDuration));
       int syncDuration = videoDuration + 1000 * 5;
+      String.format("ready for business: videoName = %s", playerName));
 
       while (true) {
         try {
@@ -149,6 +150,7 @@ public class FullscreenActivity extends AppCompatActivity implements SurfaceHold
         } catch (IOException e) {
           e.printStackTrace();
         }
+        Log.v("videoManager", String.format("Video Duration = %d", videoDuration));
         Date myDate = TrueTime.now();
         long currentTime = myDate.getTime();
         Log.v("videoManager", String.format("Loop Start Time = %d", currentTime));
@@ -178,7 +180,7 @@ public class FullscreenActivity extends AppCompatActivity implements SurfaceHold
   private long downloadID;
 
 
-    /**
+  /**
    * Touch listener to use for in-layout UI controls to delay hiding the
    * system UI. This is to prevent the jarring behavior of controls going away
    * while interacting with activity UI.
