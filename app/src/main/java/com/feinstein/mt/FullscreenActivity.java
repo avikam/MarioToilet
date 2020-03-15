@@ -136,8 +136,13 @@ public class FullscreenActivity extends AppCompatActivity implements SurfaceHold
                   Log.v("PLAYLIST", "Downloading new file");
                   Prefrences.SetVideoFilename(sharedPreferences, videoUrl);
                   downloadVideoFile(videoUrl);
-                } else {
-                  videoAvailable = true;
+                }
+                else {
+                  try {
+                    PlayVideoFile();
+                  } catch (IOException e) {
+                    e.printStackTrace();
+                  }
                 }
 
               },
@@ -160,7 +165,7 @@ public class FullscreenActivity extends AppCompatActivity implements SurfaceHold
     @SuppressWarnings("InfiniteLoopStatement")
     @Override
     public void run() {
-      while (!(timeSynced && surfaceCreated && videoAvailable && (playerName != null))) {
+      while (!(timeSynced && surfaceCreated && videoAvailable && (playerName != null) )) {
         Log.v("videoManager", String.format(
             "waiting for init (%b %b %s)", timeSynced, surfaceCreated, playerName
         ));
@@ -302,12 +307,8 @@ public class FullscreenActivity extends AppCompatActivity implements SurfaceHold
         // Move new file to our dest file
         File newFile = getVideoFile(NewVideoFileName);
         newFile.renameTo(getVideoFile(VideoFileName));
-        videoAvailable = true;
+        PlayVideoFile();
 
-        // Change data source to the newly downloaded file
-        mediaPlayer.reset();
-        mediaPlayer.setDataSource(getVideoFile(VideoFileName).getPath());
-        mediaPlayer.prepare();
 
       } catch (IOException e) {
         Log.e("DOWNLOAD", "Error while loading downloaded file");
@@ -315,6 +316,15 @@ public class FullscreenActivity extends AppCompatActivity implements SurfaceHold
       }
     }
   };
+
+  private void PlayVideoFile() throws IOException {
+    // Change data source to the newly downloaded file
+    hide();
+    mediaPlayer.reset();
+    mediaPlayer.setDataSource(getVideoFile(VideoFileName).getPath());
+    mediaPlayer.prepare();
+    videoAvailable = true;
+  }
 
   private void downloadVideoFile(String url) {
     File file = getVideoFile(NewVideoFileName);
