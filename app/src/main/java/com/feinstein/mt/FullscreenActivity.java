@@ -42,11 +42,12 @@ import java.util.Date;
  */
 public class FullscreenActivity extends AppCompatActivity implements SurfaceHolder.Callback {
   private MediaPlayer mediaPlayer;
-  private PlaylistConfig plConfig;
-  // Identifier specifying which video to play
-  private Integer videoPlayerId;
-  private Integer playerName;
 
+  // Identifier specifying which video to play
+  private Integer playerName = null;
+
+  // HTTP request queue
+  private RequestQueue httpRequestQueue;
 
   static final String VideoFileName = "MarioToiletFile.3gp";
   static final String NewVideoFileName = "MarioToiletFile-New.3gp";
@@ -56,8 +57,11 @@ public class FullscreenActivity extends AppCompatActivity implements SurfaceHold
    * {@link #AUTO_HIDE_DELAY_MILLIS} milliseconds.
    */
   private static final boolean AUTO_HIDE = true;
+
   private boolean timeSynced = false;
   private boolean surfaceCreated = false;
+  private boolean videoAvailable = false;
+  private boolean exited;
 
   /**
    * If {@link #AUTO_HIDE} is set, the number of milliseconds to wait after
@@ -102,25 +106,50 @@ public class FullscreenActivity extends AppCompatActivity implements SurfaceHold
     }
   };
   private boolean mVisible;
-  private final Runnable mHideRunnable = new Runnable() {
-    @Override
-    public void run() {
-      hide();
-    }
-  };
+  private final Runnable mHideRunnable = () -> hide();
 
-  private final Runnable syncTime = new Runnable() {
-    @Override
-    public void run() {
+  private final Runnable syncRunnable = () -> {
+    while (!exited) {
       try {
-        // TODO: In Loop
+        // Resync Time
         TrueTime.build().initialize();
         timeSynced = true;
 
-        Date noReallyThisIsTheTrueDateAndTime = TrueTime.now();
-        noReallyThisIsTheTrueDateAndTime.getTime();
-        Log.v("TIME_DEBUG", noReallyThisIsTheTrueDateAndTime.toString());
+        // Poll HTTP Playlist, check for changes - Must have playerName to know how to deal with
+        // the response
+        if (playerName != null) {
 
+          StringRequest stringRequest = new StringRequest(Request.Method.GET,
+              "https://mario-toilet.s3-us-west-2.amazonaws.com/manifest.txt",
+              (response) -> {
+                Log.v("PLAYLIST", response);
+
+                PlaylistConfig plConfig = PlaylistConfig.fromString(response);
+                String videoUrl = plConfig.videos.get(playerName);
+                Log.v("PLAYLIST", String.format("My Video: %s", videoUrl));
+
+                SharedPreferences sharedPreferences = getPreferences(Context.MODE_PRIVATE);
+                String currentFileName = Prefrences.GetVideoFilename(sharedPreferences);
+
+                Log.v("PLAYLIST", String.format("%s %s", currentFileName, videoUrl));
+                if (currentFileName == null || !currentFileName.equals(videoUrl)) {
+                  Log.v("PLAYLIST", "Downloading new file");
+                  Prefrences.SetVideoFilename(sharedPreferences, videoUrl);
+                  downloadVideoFile(videoUrl);
+                } else {
+                  videoAvailable = true;
+                }
+
+              },
+              (error) -> {
+                Log.e("PLAYLIST", error.toString());
+              }
+          );
+
+          httpRequestQueue.add(stringRequest);
+        }
+
+        SystemClock.sleep(60000);
       } catch (IOException e) {
         e.printStackTrace();
       }
@@ -131,7 +160,7 @@ public class FullscreenActivity extends AppCompatActivity implements SurfaceHold
     @SuppressWarnings("InfiniteLoopStatement")
     @Override
     public void run() {
-      while (!(timeSynced && surfaceCreated && (playerName != null))) {
+      while (!(timeSynced && surfaceCreated && videoAvailable && (playerName != null))) {
         Log.v("videoManager", String.format(
             "waiting for init (%b %b %s)", timeSynced, surfaceCreated, playerName
         ));
@@ -216,40 +245,14 @@ public class FullscreenActivity extends AppCompatActivity implements SurfaceHold
     // Upon interacting with UI controls, delay any scheduled hide()
     // operations to prevent the jarring behavior of controls going away
     // while interacting with the UI.
-    findViewById(R.id.dummy_button).setOnTouchListener(mDelayHideTouchListener);
+    // findViewById(R.id.dummy_button).setOnTouchListener(mDelayHideTouchListener);
 
-    // Time Sync
-    new Thread(syncTime).start();
+    httpRequestQueue = Volley.newRequestQueue(this);
+
+    // Start threads
+    exited = false;
+    new Thread(syncRunnable).start();
     new Thread(videoManager).start();
-
-    // TODO: Get Video Player ID:
-    videoPlayerId = 0;
-
-    RequestQueue httpRequestQueue = Volley.newRequestQueue(this);
-    StringRequest stringRequest = new StringRequest(Request.Method.GET,
-        "http://10.0.2.2:8000/playlist",
-        (response) -> {
-          Log.v("PLAYLIST", response);
-
-          plConfig = PlaylistConfig.fromString(response);
-          String videoUrl = plConfig.videos.get(videoPlayerId);
-          Log.v("PLAYLIST", String.format("My Video: %s. Starting Downloading it", videoUrl));
-
-          SharedPreferences sharedPreferences = getPreferences(Context.MODE_PRIVATE);
-          String currentFileName = Prefrences.GetVideoFilename(sharedPreferences);
-
-          if (currentFileName == null || currentFileName.equals(videoUrl)) {
-            Prefrences.SetVideoFilename(sharedPreferences, videoUrl);
-            downloadVideoFile(videoUrl);
-          }
-
-        },
-        (error) -> {
-          Log.e("PLAYLIST", error.toString());
-        }
-    );
-
-    httpRequestQueue.add(stringRequest);
   }
 
   private void SetPlayerName() {
@@ -278,6 +281,12 @@ public class FullscreenActivity extends AppCompatActivity implements SurfaceHold
     }
   }
 
+  @Override
+  protected void onDestroy() {
+    super.onDestroy();
+
+    exited = true;
+  }
 
   // Video file download management
   private BroadcastReceiver onDownloadComplete = new BroadcastReceiver() {
@@ -293,7 +302,7 @@ public class FullscreenActivity extends AppCompatActivity implements SurfaceHold
         // Move new file to our dest file
         File newFile = getVideoFile(NewVideoFileName);
         newFile.renameTo(getVideoFile(VideoFileName));
-
+        videoAvailable = true;
 
         // Change data source to the newly downloaded file
         mediaPlayer.reset();
