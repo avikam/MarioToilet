@@ -8,6 +8,7 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import android.app.DownloadManager;
 import android.content.BroadcastReceiver;
+import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
@@ -17,6 +18,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.SystemClock;
+import android.provider.Settings;
 import android.text.InputType;
 import android.util.Log;
 import android.view.MotionEvent;
@@ -137,18 +139,14 @@ public class FullscreenActivity extends AppCompatActivity implements SurfaceHold
                   Prefrences.SetVideoFilename(sharedPreferences, videoUrl);
                   downloadVideoFile(videoUrl);
                 } else {
-                  try {
-                    if (!videoAvailable)
+                    if (!videoAvailable) {
                       PlayVideoFile();
-                  } catch (IOException e) {
-                    e.printStackTrace();
-                  }
+                    }
+
                 }
 
               },
-              (error) -> {
-                Log.e("PLAYLIST", error.toString());
-              }
+              (error) -> Log.e("PLAYLIST", error.toString())
           );
 
           httpRequestQueue.add(stringRequest);
@@ -165,25 +163,26 @@ public class FullscreenActivity extends AppCompatActivity implements SurfaceHold
     @SuppressWarnings("InfiniteLoopStatement")
     @Override
     public void run() {
-      while (!(timeSynced && surfaceCreated && videoAvailable && (playerName != null) )) {
+      while (!(timeSynced && surfaceCreated && videoAvailable && (playerName != null))) {
         Log.v("videoManager", String.format(
             "waiting for init (%b %b %s)", timeSynced, surfaceCreated, playerName
         ));
         SystemClock.sleep(1000);
       }
-      Log.v("videoManager",
-          String.format("ready for business: playerName = %s", playerName));
-      int videoDuration = mediaPlayer.getDuration();
-      Log.v("videoManager", String.format("Video Duration = %d", videoDuration));
-      int syncDuration = videoDuration + 1000 * 5;
-      Log.v("videoManager", String.format("ready for business: videoName = %s", playerName));
 
-      while (true) {
+      while (!exited) {
         try {
           TrueTime.build().initialize();
         } catch (IOException e) {
           e.printStackTrace();
         }
+        Log.v("videoManager",
+            String.format("ready for business: playerName = %s", playerName));
+        int videoDuration = mediaPlayer.getDuration();
+        Log.v("videoManager", String.format("Video Duration = %d", videoDuration));
+        int syncDuration = videoDuration + 1000 * 5;
+        Log.v("videoManager", String.format("ready for business: videoName = %s", playerName));
+
         Log.v("videoManager", String.format("Video Duration = %d", videoDuration));
         Date myDate = TrueTime.now();
         long currentTime = myDate.getTime();
@@ -207,7 +206,7 @@ public class FullscreenActivity extends AppCompatActivity implements SurfaceHold
         currentTime = TrueTime.now().getTime();
         Log.v("videoManager", String.format("Video Start Time = %d", currentTime));
         runOnUiThread(
-            () -> mediaPlayer.start()
+            () -> startMediaPlayer()
         );
       }
     }
@@ -215,6 +214,16 @@ public class FullscreenActivity extends AppCompatActivity implements SurfaceHold
 
   private long downloadID;
 
+  private void startMediaPlayer() {
+    try {
+      ContentResolver cResolver = getContentResolver();
+      Settings.System.putInt(cResolver, Settings.System.SCREEN_BRIGHTNESS, 255);
+    } catch (Exception e) {
+      Log.v("MEDIA_PLAYER", "Did my best to set brightness, not stressing it!");
+    }
+
+    mediaPlayer.start();
+  }
 
   /**
    * Touch listener to use for in-layout UI controls to delay hiding the
@@ -305,27 +314,26 @@ public class FullscreenActivity extends AppCompatActivity implements SurfaceHold
         return;
       }
 
-      try {
-        // Move new file to our dest file
-        File newFile = getVideoFile(NewVideoFileName);
-        newFile.renameTo(getVideoFile(VideoFileName));
-        PlayVideoFile();
-
-
-      } catch (IOException e) {
-        Log.e("DOWNLOAD", "Error while loading downloaded file");
-        e.printStackTrace();
-      }
+      // Move new file to our dest file
+      File newFile = getVideoFile(NewVideoFileName);
+      newFile.renameTo(getVideoFile(VideoFileName));
+      PlayVideoFile();
     }
   };
 
-  private void PlayVideoFile() throws IOException {
+  private void PlayVideoFile() {
     // Change data source to the newly downloaded file
     hide();
     mediaPlayer.reset();
-    mediaPlayer.setDataSource(getVideoFile(VideoFileName).getPath());
-    mediaPlayer.prepare();
-    videoAvailable = true;
+
+    try {
+      mediaPlayer.setDataSource(getVideoFile(VideoFileName).getPath());
+      mediaPlayer.prepare();
+      videoAvailable = true;
+
+    } catch (IOException e) {
+      e.printStackTrace();
+    }
   }
 
   private void downloadVideoFile(String url) {
